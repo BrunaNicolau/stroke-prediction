@@ -221,10 +221,6 @@ src/assistant/
 └── retriever.py              # RAG (FAISS + embeddings locais) sobre o corpus
 ```
 
-> Ainda em desenvolvimento: `src/assistant/tools.py`, `chain.py`,
-> `llm_backend.py`, `graph.py` (fluxo LangGraph), notebooks de demonstração
-> (04–06) e o pipeline de fine-tuning no Colab.
-
 ### Instalar dependências da Fase 3
 
 Já estão em `requirements.txt`; se seu `venv` já existia da Fase 2, instale o
@@ -271,6 +267,54 @@ python -c "from src.assistant.retriever import build_vectorstore, retrieve; vs =
 ```powershell
 python -c "from src.finetuning.dataset import load_split, format_example; ex = load_split('data/medical_corpus/eval.jsonl')[0]; print(format_example(ex))"
 ```
+
+### 6. Rodar o assistente (chain: RAG + prontuário + guardrails)
+
+Requer o vectorstore (RAG) montado — passo 4 — e os modelos da Fase 1
+treinados (`notebooks/01_baseline.ipynb`), já que `run_flow`/`answer_question`
+consultam o prontuário SQLite e o modelo de risco de AVC. Sem
+`results/finetuning/lora_adapter/` localmente, `get_generate_fn` cai
+automaticamente para o Gemini (`GOOGLE_API_KEY` no `.env`):
+
+```powershell
+python -c "from src.assistant.chain import answer_question; from src.assistant.retriever import build_vectorstore; from src.assistant.llm_backend import get_generate_fn; vs = build_vectorstore(); gen = get_generate_fn(); result = answer_question(9046, 'Quais os proximos passos para este paciente?', vs, gen); print(result['response']); print(result['sources'])"
+```
+
+Ou via notebook:
+
+```powershell
+jupyter notebook notebooks/05_langchain_assistant.ipynb
+```
+
+### 7. Rodar o fluxo completo de decisão clinica (LangGraph)
+
+Executa `receive_patient_data -> ... -> run_stroke_prediction ->
+suggest_conduct -> apply_guardrails -> [emit_alert] -> audit_log`
+(`src/assistant/graph.py`), gravando o log de auditoria em
+`src/security/audit_log.py`:
+
+```powershell
+python -c "from src.assistant.graph import run_flow; from src.assistant.retriever import build_vectorstore; from src.assistant.llm_backend import get_generate_fn; vs = build_vectorstore(); gen = get_generate_fn(); state = run_flow(9046, 'Quais os proximos passos para este paciente?', vs, gen); print(state['response']); print('alerta:', state.get('alert'), state.get('alert_reason'))"
+```
+
+Ou via notebook:
+
+```powershell
+jupyter notebook notebooks/06_langgraph_flow.ipynb
+```
+
+### 8. Fine-tuning (LoRA/PEFT) — roda no Google Colab
+
+Pesado para CPU local (`transformers`, `peft`, `accelerate`, `datasets` são
+instalados apenas lá — ver comentário em `requirements.txt`):
+
+```powershell
+jupyter notebook notebooks/04_finetuning.ipynb
+```
+
+Depois de treinado, baixe o adapter do Colab para
+`results/finetuning/lora_adapter/` — `src/assistant/llm_backend.py` passa a
+usá-lo automaticamente em vez do fallback Gemini.
 
 ### Rodar os testes automatizados
 
