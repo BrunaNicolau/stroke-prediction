@@ -63,10 +63,19 @@ cd stroke-prediction-phase2
 
 # 2. Crie e ative um ambiente virtual
 python -m venv venv
-# Windows:
-venv\Scripts\activate
+
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Se aparecer erro de política de execução, rode uma vez (libera só para o seu usuário):
+#   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+# Windows (Git Bash):
+source venv/Scripts/activate
+
 # Linux/Mac:
 source venv/bin/activate
+
+# Para desativar (qualquer shell): deactivate
 
 # 3. Instale as dependências
 pip install -r requirements.txt
@@ -172,6 +181,102 @@ de afirmação categórica de diagnóstico) e tamanho razoável da resposta.
 Retorna `{"score": float, "checks": {regra: bool}}`. Ver
 `notebooks/03_llm_integration.ipynb` para uma demonstração completa,
 incluindo as notas de prompt engineering usadas.
+
+---
+
+---
+
+## Fase 3 — Assistente Médico (Fine-tuning + LangChain + LangGraph)
+
+**FIAP Pós-Tech IA para Devs — Tech Challenge Fase 3**
+
+Sobre a base da Fase 2, a Fase 3 adiciona: fine-tuning (LoRA/PEFT) de um LLM
+com dados médicos internos (protocolos, FAQs, laudos), um assistente
+LangChain com RAG sobre esses dados + consulta a um "prontuário" estruturado,
+guardrails de segurança e logging de auditoria, e um fluxo de decisão
+automatizado em LangGraph. Domínio: AVC/stroke, para manter coerência com o
+dataset e os modelos já usados nas Fases 1–2.
+
+### Estrutura adicionada
+
+```
+data/medical_corpus/
+├── preprocessing.py        # limpeza, anonimização (PII), curadoria, split train/eval
+├── synthetic_generation.py # gera protocolos/FAQs/laudos sintéticos via Gemini
+├── build_corpus.py         # combina MedQuAD/PubMedQA (stroke) + sintético -> train/eval.jsonl
+├── synthetic_raw.jsonl     # saída bruta do gerador sintético
+├── train.jsonl             # corpus curado de treino
+└── eval.jsonl              # corpus curado de avaliação
+
+src/security/
+├── guardrails.py           # bloqueia prescrição direta, exige validação humana
+└── audit_log.py            # log estruturado (JSONL) de cada interação
+
+src/finetuning/
+├── dataset.py               # formata exemplos para o formato de fine-tuning
+└── evaluate.py               # checklist determinístico de avaliação do modelo
+
+src/assistant/
+├── patient_db.py            # CSV de stroke como "prontuário" em SQLite
+└── retriever.py              # RAG (FAISS + embeddings locais) sobre o corpus
+```
+
+> Ainda em desenvolvimento: `src/assistant/tools.py`, `chain.py`,
+> `llm_backend.py`, `graph.py` (fluxo LangGraph), notebooks de demonstração
+> (04–06) e o pipeline de fine-tuning no Colab.
+
+### Instalar dependências da Fase 3
+
+Já estão em `requirements.txt`; se seu `venv` já existia da Fase 2, instale o
+que falta:
+
+```powershell
+pip install langchain langchain-community langgraph faiss-cpu sentence-transformers "datasets<3.0"
+```
+
+### 1. Construir o corpus médico (protocolos + FAQs + dados públicos)
+
+```powershell
+# (Opcional) gerar novos exemplos sintéticos via Gemini — usa GOOGLE_API_KEY do .env
+python -m data.medical_corpus.synthetic_generation
+
+# Busca MedQuAD/PubMedQA (filtrado por "stroke") + combina com o sintético,
+# aplica curadoria/anonimização e grava train.jsonl / eval.jsonl
+python -m data.medical_corpus.build_corpus
+```
+
+### 2. Testar os módulos de segurança
+
+```powershell
+python -c "from src.security.guardrails import enforce_human_validation; print(enforce_human_validation('Tome 500mg de AAS agora.'))"
+python -c "from src.security.audit_log import log_interaction, read_audit_log; log_interaction(9046, 'pergunta teste', 'resposta teste'); print(read_audit_log())"
+```
+
+### 3. Construir o "prontuário" (SQLite) e testar consultas
+
+```powershell
+python -c "from src.assistant.patient_db import build_patient_db, get_patient_record; build_patient_db(); print(get_patient_record(9046))"
+```
+
+### 4. Testar a busca semântica (RAG/FAISS)
+
+Baixa o modelo de embeddings (`all-MiniLM-L6-v2`, ~90MB) na primeira execução:
+
+```powershell
+python -c "from src.assistant.retriever import build_vectorstore, retrieve; vs = build_vectorstore(); [print(r['source'], '-', r['text'][:80]) for r in retrieve(vs, 'criterios para trombolise no AVC', k=2)]"
+```
+
+### 5. Testar formatação/avaliação do dataset de fine-tuning
+
+```powershell
+python -c "from src.finetuning.dataset import load_split, format_example; ex = load_split('data/medical_corpus/eval.jsonl')[0]; print(format_example(ex))"
+```
+
+### Rodar os testes automatizados
+
+```powershell
+pytest tests/ -q
+```
 
 ---
 
