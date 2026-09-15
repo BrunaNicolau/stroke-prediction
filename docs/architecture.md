@@ -1,6 +1,25 @@
-# Arquitetura do Sistema — Stroke Prediction Phase 2
+# Arquitetura do Sistema — Stroke Prediction
 
-**FIAP Pós-Tech IA para Devs — Tech Challenge Fase 2**
+**FIAP Pós-Tech IA para Devs — Tech Challenge**
+
+Diagramas e decisões técnicas do projeto, organizados por fase. Cada bloco cobre
+os módulos introduzidos naquela fase; a Fase 3 reaproveita e estende o que foi
+construído na Fase 2.
+
+| Fase | Conteúdo | Seção |
+|------|----------|-------|
+| 2 | Algoritmo Genético + interpretação via LLM | [Arquitetura Fase 2](#arquitetura-fase-2--algoritmo-genético--interpretação-llm) |
+| 3 | Fine-tuning, assistente LangChain, fluxo LangGraph, segurança | [Arquitetura Fase 3](#arquitetura-fase-3--assistente-medico-fine-tuning--langchain--langgraph) |
+
+> A estrutura de diretórios completa e atualizada (com os módulos da Fase 3) está
+> no [README](../README.md#estrutura-do-repositório). O relatório técnico da
+> Fase 3 está em [`relatorio_tecnico_fase3.md`](relatorio_tecnico_fase3.md).
+
+---
+
+# Arquitetura Fase 2 — Algoritmo Genético + Interpretação LLM
+
+**Tech Challenge Fase 2**
 
 ---
 
@@ -111,10 +130,15 @@ flowchart LR
 
 ---
 
-## Estrutura de Diretorios
+## Estrutura de Diretorios (escopo da Fase 2)
+
+> Recorte dos modulos existentes ao final da Fase 2. Os diretorios adicionados
+> na Fase 3 (`src/assistant/`, `src/security/`, `src/finetuning/`,
+> `data/medical_corpus/`) estao na secao da Fase 3 e no
+> [README](../README.md#estrutura-do-repositório).
 
 ```
-stroke-prediction-phase2/
+stroke-prediction/
 ├── data/
 │   └── download_data.py          # Download do dataset via kagglehub
 ├── src/
@@ -134,7 +158,7 @@ stroke-prediction-phase2/
 │   ├── 01_baseline.ipynb         # Reproducao da Fase 1 (linha de base)
 │   ├── 02_genetic_algorithm.ipynb # Experimentos AG + comparativo
 │   └── 03_llm_integration.ipynb  # Demonstracao LLM com avaliacao
-├── tests/                        # 54 testes unitarios (pytest)
+├── tests/                        # 54 testes unitarios na Fase 2 (111 na Fase 3)
 ├── results/
 │   ├── experiments.json          # Historico de fitness por geracao
 │   └── ga_summary.json           # Metricas baseline vs. otimizado
@@ -239,7 +263,7 @@ Dois templates em `prompts.py`:
 
 ---
 
-## Decisoes Tecnicas
+## Decisoes Tecnicas (Fase 2)
 
 | Decisao | Alternativa considerada | Justificativa |
 |---------|------------------------|---------------|
@@ -253,7 +277,7 @@ Dois templates em `prompts.py`:
 
 ---
 
-## Limitacoes Conhecidas
+## Limitacoes Conhecidas (Fase 2)
 
 - **CV rapido vs. estabilidade:** com `cv=2` e `patience` baixo, os experimentos convergem rapido mas podem ser sensiveis ao `random_state`. Para publicacao, recomenda-se `cv=5` e `patience>=8`.
 - **Populacoes pequenas:** populacoes de 20–50 individuos sao adequadas para o espaco de busca (4–5 genes), mas podem perder diversidade em modelos com mais hiperparametros.
@@ -443,7 +467,8 @@ usado no fluxo.
 ## Limitacoes Conhecidas (Fase 3)
 
 - **Dados sinteticos:** nao ha protocolos/laudos reais do hospital disponiveis. Os exemplos sinteticos (gerados via Gemini) sao plausiveis mas ficticios — nao devem ser usados como referencia clinica real.
-- **Guardrail por regex:** `contains_direct_prescription` cobre padroes comuns em portugues (verbos imperativos, dosagem em mg), mas nao e semanticamente completo — uma prescricao direta formulada de forma atipica pode nao ser detectada.
-- **Cota da API Gemini:** o tier gratuito tem limite diario de requisicoes; sem um adapter LoRA local, o assistente depende dessa cota quando usado repetidamente no mesmo dia.
+- **Guardrail por regex:** `contains_direct_prescription` cobre padroes comuns em portugues (verbos imperativos, dosagem em mg), mas nao e semanticamente completo. Erra nas duas direcoes: uma prescricao formulada de forma atipica pode passar, e uma explicacao que apenas cita medicamento e dosagem pode ser marcada como prescricao (falso positivo observado na execucao real — ver secao 6.3 do relatorio da Fase 3).
+- **Capacidade do modelo fine-tuned:** com 1.5B parametros e 510 exemplos, o adapter ajusta formato e tom das respostas, mas nao incorpora conhecimento clinico confiavel — alucinacoes de dados ausentes e imprecisoes clinicas foram observadas nos notebooks 05 e 06.
+- **Cota da API Gemini:** o fallback do assistente (quando `results/finetuning/lora_adapter/` nao esta presente) usa o tier gratuito, com limite diario de requisicoes. Com o adapter versionado no repo, o caminho padrao nao depende de API.
 - **Fine-tuning nao roda localmente:** `notebooks/04_finetuning.ipynb` foi desenhado para o Colab (GPU gratuita); sem GPU, treinar mesmo um modelo de 1.5B com LoRA e impraticavel em tempo razoavel.
 - **RAG sem reranking:** `retriever.py` usa busca por similaridade simples (top-k), sem reranking ou filtragem por relevancia minima — pode retornar fontes pouco relevantes quando o corpus nao cobre bem o tema perguntado.
