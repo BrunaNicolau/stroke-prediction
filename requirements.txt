@@ -28,14 +28,14 @@ pytest>=7.4.0
 pytest-cov>=4.1.0
 
 # Fase 3 — Assistente Médico (fine-tuning + LangChain + LangGraph)
-langchain>=1.0.0
-langchain-community>=0.4.0
-langgraph>=1.0.0
+langchain>=0.3.30
+langchain-community>=0.3.30
+langgraph>=0.6.11
 faiss-cpu>=1.9.0
-sentence-transformers>=6.0.0
+sentence-transformers>=5.1.2
 
 # Fine-tuning (roda no Google Colab — instalar apenas lá, pesado para CPU local)
-transformers>=5.0.0
-peft>=0.20.0
+transformers>=4.57.6
+peft>=0.17.1
 accelerate>=1.0.0
 datasets>=2.21.0,<3.0.0
