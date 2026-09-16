@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Fluxo de Decisão Clínica — LangGraph",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "caminho-feliz", "label": "Caminho sem alerta", "focus": ["intake", "check", "predict", "suggest", "guardrail", "audit"], "note": "Risco baixo e resposta segura: o fluxo vai direto para a auditoria." },
+      { "id": "caminho-alerta", "label": "Caminho com alerta", "focus": ["guardrail", "alert", "audit"], "note": "Risco alto ou guardrail acionado: passa por emit_alert antes de auditar." },
+      { "id": "contexto-clinico", "label": "Coleta de contexto", "focus": ["intake", "check", "predict"], "note": "As três consultas que acontecem antes de qualquer geração de texto." }
+    ]
+  },
+  "lanes": [
+    { "id": "contexto", "label": "Contexto do Paciente" },
+    { "id": "geracao", "label": "Geração + Guardrail" },
+    { "id": "excecao", "label": "Alerta Condicional", "variant": "exception" },
+    { "id": "registro", "label": "Auditoria" }
+  ],
+  "groups": [
+    { "id": "condicao", "label": "Se risco ≥ 0,50 ou guardrail acionado", "lane": "excecao", "fromCol": 4, "toCol": 4, "variant": "security" }
+  ],
+  "mainPath": ["intake", "check", "predict", "suggest", "guardrail", "audit"],
+  "nodes": [
+    { "id": "intake", "lane": "contexto", "col": 0, "type": "database", "label": "Receber & Consultar Prontuário", "sublabel": "receive_patient_data → query_patient_record", "tag": "SQLite", "width": 210, "height": 68 },
+    { "id": "check", "lane": "contexto", "col": 1, "type": "backend", "label": "Checar Exames Pendentes", "sublabel": "check_pending_exams", "width": 160 },
+    { "id": "predict", "lane": "contexto", "col": 2, "type": "backend", "label": "Prever Risco de AVC", "sublabel": "run_stroke_prediction", "tag": "modelo Fase 1–2", "width": 150, "height": 68 },
+    { "id": "suggest", "lane": "geracao", "col": 3, "type": "backend", "label": "Sugerir Conduta", "sublabel": "suggest_conduct", "tag": "LLM + RAG", "width": 130, "height": 68 },
+    { "id": "guardrail", "lane": "geracao", "col": 4, "type": "security", "label": "Aplicar Guardrail", "sublabel": "apply_guardrails", "width": 140 },
+    { "id": "alert", "lane": "excecao", "col": 4, "type": "security", "label": "Emitir Alerta", "sublabel": "emit_alert", "tag": "risco ≥ 0,50", "width": 130, "height": 68 },
+    { "id": "audit", "lane": "registro", "col": 5, "type": "database", "label": "Log de Auditoria", "sublabel": "audit_log", "tag": "SHA-256", "width": 130, "height": 68 }
+  ],
+  "edges": [
+    { "from": "intake", "to": "check", "variant": "emphasis" },
+    { "from": "check", "to": "predict", "variant": "emphasis" },
+    { "from": "predict", "to": "suggest", "variant": "emphasis" },
+    { "from": "suggest", "to": "guardrail", "variant": "emphasis" },
+    { "from": "guardrail", "to": "audit", "label": "sem alerta", "variant": "emphasis" },
+    { "from": "guardrail", "to": "alert", "label": "risco alto ou guardrail", "variant": "security" },
+    { "from": "alert", "to": "audit", "variant": "security" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Pipeline determinístico", "items": ["Ordem fixa — não é um agente escolhendo o que chamar"] },
+    { "dot": "rose", "title": "Decisão condicional real", "items": ["Alerta se risco ≥ 0,50 OU guardrail acionar (add_conditional_edges)"] },
+    { "dot": "emerald", "title": "Auditoria sempre roda", "items": ["patient_id pseudonimizado por SHA-256 antes de gravar"] }
+  ]
+}
