@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Assistente Médico de AVC — Arquitetura Fase 3",
+    "quality_profile": "showcase",
+    "viewBox": [1320, 500],
+    "views": [
+      {
+        "id": "fluxo-clinico",
+        "label": "Fluxo clínico",
+        "focus": ["medico", "graph", "llm", "guardrails", "audit"],
+        "note": "Caminho principal: da pergunta do médico até o registro auditado da resposta."
+      },
+      {
+        "id": "contexto-paciente",
+        "label": "Contexto do paciente",
+        "focus": ["graph", "prontuario", "retriever", "tools"],
+        "note": "As três fontes que o grafo consulta antes de pedir a conduta ao modelo."
+      },
+      {
+        "id": "modelo-customizado",
+        "label": "Modelo customizado",
+        "focus": ["corpus", "adapter", "llm"],
+        "note": "Do corpus curado ao adapter LoRA que substitui o fallback de API."
+      },
+      {
+        "id": "seguranca",
+        "label": "Segurança e auditoria",
+        "focus": ["llm", "guardrails", "audit"],
+        "note": "Nenhuma resposta chega ao médico sem passar pelo guardrail e pelo log."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "corpus",
+      "type": "database",
+      "label": "data/medical_corpus",
+      "sublabel": "510 + 89 exemplos",
+      "tag": "PII anonimizada",
+      "pos": [55, 40],
+      "size": [185, 60]
+    },
+    {
+      "id": "adapter",
+      "type": "backend",
+      "label": "lora_adapter",
+      "sublabel": "Qwen2.5-1.5B",
+      "tag": "0,28% treináveis",
+      "pos": [365, 40],
+      "size": [190, 60]
+    },
+    {
+      "id": "medico",
+      "type": "external",
+      "label": "Médico",
+      "sublabel": "pergunta clínica",
+      "pos": [55, 195],
+      "size": [140, 66]
+    },
+    {
+      "id": "graph",
+      "type": "backend",
+      "label": "graph.py",
+      "sublabel": "fluxo LangGraph",
+      "pos": [300, 195],
+      "size": [165, 70]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "llm_backend.py",
+      "sublabel": "gera a conduta",
+      "pos": [600, 195],
+      "size": [170, 70]
+    },
+    {
+      "id": "guardrails",
+      "type": "security",
+      "label": "guardrails.py",
+      "sublabel": "nunca prescreve direto",
+      "pos": [905, 195],
+      "size": [170, 70]
+    },
+    {
+      "id": "prontuario",
+      "type": "database",
+      "label": "patient_db.py",
+      "sublabel": "SQLite · prontuários",
+      "pos": [235, 370],
+      "size": [175, 60]
+    },
+    {
+      "id": "retriever",
+      "type": "database",
+      "label": "retriever.py",
+      "sublabel": "FAISS · top-k",
+      "tag": "indexa o corpus",
+      "pos": [475, 370],
+      "size": [175, 60]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "tools.py",
+      "sublabel": "risco de AVC",
+      "pos": [715, 370],
+      "size": [175, 60]
+    },
+    {
+      "id": "audit",
+      "type": "database",
+      "label": "audit_log.py",
+      "sublabel": "audit_log.jsonl",
+      "tag": "SHA-256",
+      "pos": [955, 370],
+      "size": [175, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Validação humana obrigatória",
+      "wraps": ["guardrails", "audit"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "pergunta",
+      "from": "medico",
+      "to": "graph",
+      "label": "pergunta + ID",
+      "variant": "emphasis"
+    },
+    {
+      "id": "treino",
+      "from": "corpus",
+      "to": "adapter",
+      "label": "fine-tuning LoRA"
+    },
+    {
+      "id": "modelo-local",
+      "from": "adapter",
+      "to": "llm",
+      "label": "modelo fine-tuned",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "consulta-prontuario",
+      "from": "graph",
+      "to": "prontuario",
+      "label": "consulta registro",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDx": -20
+    },
+    {
+      "id": "busca-semantica",
+      "from": "graph",
+      "to": "retriever",
+      "label": "busca protocolos",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "predicao-risco",
+      "from": "graph",
+      "to": "tools",
+      "label": "prediz risco",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "prompt",
+      "from": "graph",
+      "to": "llm",
+      "label": "prompt contextualizado",
+      "variant": "emphasis"
+    },
+    {
+      "id": "resposta",
+      "from": "llm",
+      "to": "guardrails",
+      "label": "resposta gerada",
+      "variant": "emphasis"
+    },
+    {
+      "id": "auditoria",
+      "from": "guardrails",
+      "to": "audit",
+      "label": "registra interação",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Fluxo clínico",
+      "items": [
+        "Pipeline determinístico: cada etapa roda em ordem fixa, sem tool-calling livre",
+        "Alerta condicional quando o risco passa de 0,50 ou o guardrail dispara"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Contexto do paciente",
+      "items": [
+        "Prontuário SQLite sobre o dataset de AVC das Fases 1–2",
+        "RAG local com FAISS e embeddings all-MiniLM-L6-v2, sem custo de API"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Segurança e auditoria",
+      "items": [
+        "Guardrail intercepta linguagem de prescrição direta antes do médico",
+        "patient_id pseudonimizado por SHA-256 e fontes citadas em toda resposta"
+      ]
+    }
+  ]
+}

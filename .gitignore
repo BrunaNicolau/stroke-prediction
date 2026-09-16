@@ -20,3 +20,10 @@ build/
 # Diretorios externos ao projeto (artefatos de planejamento e contexto)
 artifacts/
 context/
+
+# Fase 3 — artefatos gerados localmente (regeneráveis via README)
+results/*.joblib
+results/*.db
+results/audit_log.jsonl
+results/faiss_index/
+results/finetuning/checkpoints/

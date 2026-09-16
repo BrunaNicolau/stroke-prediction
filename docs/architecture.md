@@ -1,6 +1,25 @@
-# Arquitetura do Sistema — Stroke Prediction Phase 2
+# Arquitetura do Sistema — Stroke Prediction
 
-**FIAP Pós-Tech IA para Devs — Tech Challenge Fase 2**
+**FIAP Pós-Tech IA para Devs — Tech Challenge**
+
+Diagramas e decisões técnicas do projeto, organizados por fase. Cada bloco cobre
+os módulos introduzidos naquela fase; a Fase 3 reaproveita e estende o que foi
+construído na Fase 2.
+
+| Fase | Conteúdo | Seção |
+|------|----------|-------|
+| 2 | Algoritmo Genético + interpretação via LLM | [Arquitetura Fase 2](#arquitetura-fase-2--algoritmo-genético--interpretação-llm) |
+| 3 | Fine-tuning, assistente LangChain, fluxo LangGraph, segurança | [Arquitetura Fase 3](#arquitetura-fase-3--assistente-medico-fine-tuning--langchain--langgraph) |
+
+> A estrutura de diretórios completa e atualizada (com os módulos da Fase 3) está
+> no [README](../README.md#estrutura-do-repositório). O relatório técnico da
+> Fase 3 está em [`relatorio_tecnico_fase3.md`](relatorio_tecnico_fase3.md).
+
+---
+
+# Arquitetura Fase 2 — Algoritmo Genético + Interpretação LLM
+
+**Tech Challenge Fase 2**
 
 ---
 
@@ -111,10 +130,15 @@ flowchart LR
 
 ---
 
-## Estrutura de Diretorios
+## Estrutura de Diretorios (escopo da Fase 2)
+
+> Recorte dos modulos existentes ao final da Fase 2. Os diretorios adicionados
+> na Fase 3 (`src/assistant/`, `src/security/`, `src/finetuning/`,
+> `data/medical_corpus/`) estao na secao da Fase 3 e no
+> [README](../README.md#estrutura-do-repositório).
 
 ```
-stroke-prediction-phase2/
+stroke-prediction/
 ├── data/
 │   └── download_data.py          # Download do dataset via kagglehub
 ├── src/
@@ -134,7 +158,7 @@ stroke-prediction-phase2/
 │   ├── 01_baseline.ipynb         # Reproducao da Fase 1 (linha de base)
 │   ├── 02_genetic_algorithm.ipynb # Experimentos AG + comparativo
 │   └── 03_llm_integration.ipynb  # Demonstracao LLM com avaliacao
-├── tests/                        # 54 testes unitarios (pytest)
+├── tests/                        # 54 testes unitarios na Fase 2 (111 na Fase 3)
 ├── results/
 │   ├── experiments.json          # Historico de fitness por geracao
 │   └── ga_summary.json           # Metricas baseline vs. otimizado
@@ -239,7 +263,7 @@ Dois templates em `prompts.py`:
 
 ---
 
-## Decisoes Tecnicas
+## Decisoes Tecnicas (Fase 2)
 
 | Decisao | Alternativa considerada | Justificativa |
 |---------|------------------------|---------------|
@@ -253,10 +277,198 @@ Dois templates em `prompts.py`:
 
 ---
 
-## Limitacoes Conhecidas
+## Limitacoes Conhecidas (Fase 2)
 
 - **CV rapido vs. estabilidade:** com `cv=2` e `patience` baixo, os experimentos convergem rapido mas podem ser sensiveis ao `random_state`. Para publicacao, recomenda-se `cv=5` e `patience>=8`.
 - **Populacoes pequenas:** populacoes de 20–50 individuos sao adequadas para o espaco de busca (4–5 genes), mas podem perder diversidade em modelos com mais hiperparametros.
 - **Qualidade do LLM:** o checklist nao garante que o texto seja clinicamente correto — serve como filtro de sanidade automatico. Revisao humana e necessaria antes de uso clinico real.
 - **Dependencia de API externa:** o modulo LLM requer conexao com a API do Google. Sem `GOOGLE_API_KEY` valida, apenas os testes com mock funcionam.
 - **Dataset desbalanceado:** mesmo com SMOTE, o desbalanceamento original (4.9% positivos) afeta o threshold de decisao. A funcao fitness com penalizacao de recall < 0.30 mitiga isso, mas nao elimina.
+
+---
+
+# Arquitetura Fase 3 — Assistente Medico (Fine-tuning + LangChain + LangGraph)
+
+**FIAP Pos-Tech IA para Devs — Tech Challenge Fase 3**
+
+Sobre a base da Fase 2, a Fase 3 adiciona tres camadas novas: um pipeline de
+fine-tuning (LoRA/PEFT) com dados medicos internos, um assistente LangChain
+com RAG sobre esses dados + consulta a um "prontuario" estruturado, e um
+fluxo de decisao automatizado em LangGraph com guardrails de seguranca e
+logging de auditoria. Dominio: AVC/stroke, para manter coerencia com o
+dataset e os modelos ja usados nas Fases 1-2.
+
+## Visao Geral (Fase 3)
+
+```mermaid
+flowchart TD
+    CORPUS[("data/medical_corpus/\ntrain.jsonl + eval.jsonl")]
+
+    subgraph FT["Fase 04 - Fine-tuning (Colab)"]
+        FT1[base model\nQwen2.5-1.5B-Instruct]
+        FT2[LoRA/PEFT]
+        FT3[adapter treinado]
+        FT1 --> FT2 --> FT3
+    end
+
+    subgraph AST["src/assistant/"]
+        DB[(patient_db.py\nSQLite - prontuarios)]
+        RET[retriever.py\nFAISS + embeddings locais]
+        LLMB[llm_backend.py\nadapter local OU fallback Gemini]
+        CH[chain.py\nQ&A pipeline]
+        GR[graph.py\nLangGraph - fluxo clinico]
+    end
+
+    subgraph SEC["src/security/"]
+        GD[guardrails.py]
+        AU[audit_log.py]
+    end
+
+    CORPUS --> FT
+    CORPUS --> RET
+    FT3 -.adapter baixado.-> LLMB
+    DB --> CH
+    RET --> CH
+    LLMB --> CH
+    CH --> GD
+    GD --> AU
+
+    DB --> GR
+    RET --> GR
+    LLMB --> GR
+    GD --> GR
+    AU --> GR
+```
+
+## Fluxo de Fine-tuning (`notebooks/04_finetuning.ipynb`, Colab)
+
+```mermaid
+flowchart TD
+    A([Inicio]) --> B["Corpus curado\ntrain.jsonl / eval.jsonl"]
+    B --> C["build_hf_dataset\n(src/finetuning/dataset.py)"]
+    C --> D["Carregar modelo base\nQwen2.5-1.5B-Instruct"]
+    D --> E["Aplicar LoRA\n(peft.LoraConfig)"]
+    E --> F["Treinar\n(transformers.Trainer)"]
+    F --> G["Salvar adapter\nresults/finetuning/lora_adapter/"]
+    G --> H["Avaliar\nchecklist deterministico\n(src/finetuning/evaluate.py)"]
+    H --> I["Baixar adapter para o repo local"]
+    I --> J([Fim - usado por src/assistant/llm_backend.py])
+```
+
+**Decisao:** modelo base pequeno e nao-gated (`Qwen2.5-1.5B-Instruct`) em vez
+dos pesos oficiais do Llama, evitando a burocracia de acesso gated — ainda
+atende ao requisito do desafio ("LLaMA, Falcon **ou outro**"). LoRA em vez de
+fine-tuning completo: muito mais rapido/leve (GPU gratuita do Colab e
+suficiente) e o adapter resultante e pequeno o bastante para versionar no
+repo.
+
+## Fluxo do Assistente LangChain (`src/assistant/chain.py`)
+
+```mermaid
+flowchart LR
+    Q["pergunta do medico\n+ patient_id"]
+
+    Q --> PDB["patient_db.get_patient_record\n(SQLite)"]
+    Q --> RETQ["retriever.retrieve\n(FAISS, top-k)"]
+
+    PDB --> REC["prontuario"]
+    RETQ --> SRC["trechos de protocolo/FAQ\n+ fonte (metadata)"]
+
+    REC --> PR["prompts.build_assistant_prompt"]
+    SRC --> PR
+    EX["tools.check_pending_exams"] --> PR
+
+    PR --> LLM["llm_backend.get_generate_fn\n(adapter local OU Gemini)"]
+    LLM --> GD["guardrails.enforce_human_validation"]
+    GD --> OUT["resposta + fontes citadas\n+ flag de validacao humana"]
+```
+
+**Decisao:** pipeline deterministico (chamadas diretas em ordem fixa) em vez
+de um agente LLM que escolhe quais tools chamar. Mais confiavel e testavel —
+elimina o risco do modelo decidir nao consultar o prontuario ou o RAG, ou
+chamar uma tool com argumentos invalidos.
+
+## Fluxo de Decisao Automatizado (`src/assistant/graph.py`, LangGraph)
+
+```mermaid
+flowchart TD
+    A([receive_patient_data]) --> B[query_patient_record]
+    B --> C[check_pending_exams]
+    C --> D["run_stroke_prediction\n(reaproveita src/models.py)"]
+    D --> E["suggest_conduct\n(LLM + RAG)"]
+    E --> F["apply_guardrails\n(src/security/guardrails.py)"]
+    F --> G{"risco alto OU\nguardrail acionado?"}
+    G -->|sim| H[emit_alert]
+    G -->|nao| I["audit_log\n(src/security/audit_log.py)"]
+    H --> I
+    I --> J([Fim])
+```
+
+**Decisao:** aresta condicional real (LangGraph `add_conditional_edges`) em
+vez de sempre visitar `emit_alert` — demonstra o roteamento condicional do
+LangGraph e evita computar/logar um alerta quando nao ha nada a alertar.
+`audit_log` roda sempre, nos dois ramos, para garantir rastreabilidade
+completa (auditoria) independentemente do resultado.
+
+## Modulo — Corpus Medico (`data/medical_corpus/`)
+
+| Arquivo | Responsabilidade |
+|---------|-------------------|
+| `preprocessing.py` | limpeza, scrub de PII (regex), curadoria (tamanho min/max), dedupe, split train/eval deterministico |
+| `synthetic_generation.py` | gera protocolos/FAQs/laudos sinteticos via Gemini (com retry/backoff) — nao ha dados reais do hospital disponiveis |
+| `build_corpus.py` | busca MedQuAD/PubMedQA (filtrado por "stroke") via API publica `datasets-server`, combina com o sintetico, curadoria e grava train/eval.jsonl |
+
+**Decisao:** busca via API REST publica (`datasets-server.huggingface.co/search`)
+em vez da biblioteca `datasets` para os dados publicos — evita download de
+datasets inteiros (MedQuAD tem ~47k linhas, so ~650 sao sobre stroke) e nao
+exige a biblioteca `datasets` instalada so para o build do corpus.
+
+## Modulo — Seguranca (`src/security/`)
+
+| Arquivo | Responsabilidade |
+|---------|-------------------|
+| `guardrails.py` | detecta linguagem de prescricao direta (regex) e anexa disclaimer de validacao humana obrigatoria |
+| `audit_log.py` | logging estruturado (JSONL, via `logging` padrao) de cada interacao, com `patient_id` pseudonimizado (SHA-256) |
+
+**Decisao:** guardrail baseado em regex deterministico, nao em outro LLM
+"julgando" a resposta — mais rapido, sem custo de API adicional, 100%
+testavel, mas com o limite conhecido de nao capturar toda formulacao possivel
+de uma prescricao direta (ver Limitacoes).
+
+## Modulo — Assistente (`src/assistant/`)
+
+| Arquivo | Responsabilidade |
+|---------|-------------------|
+| `patient_db.py` | carrega o CSV de stroke (ja usado nas Fases 1-2) como tabela `prontuarios` em SQLite |
+| `retriever.py` | indice FAISS sobre o corpus, embeddings locais (`sentence-transformers/all-MiniLM-L6-v2`) |
+| `tools.py` | predicao de risco de AVC (reaproveita `src/models.py`) e checagem de exames pendentes (mock deterministico) |
+| `prompts.py` | monta o prompt do assistente (prontuario + fontes + exames pendentes + pergunta) |
+| `llm_backend.py` | seleciona o backend: adapter LoRA local se disponivel, senao Gemini (`src/llm/client.py`) |
+| `chain.py` | orquestra tudo para responder uma pergunta pontual |
+| `graph.py` | orquestra tudo como o fluxo de decisao clinico completo (LangGraph) |
+
+**Decisao:** reaproveitar o CSV de stroke como "prontuario" em vez de criar
+um schema de EHR sintetico novo — nao ha dado novo a manter/anonimizar, e o
+dataset ja e a fonte de verdade para o modelo de predicao de risco tambem
+usado no fluxo.
+
+## Decisoes Tecnicas (Fase 3)
+
+| Decisao | Alternativa considerada | Justificativa |
+|---------|------------------------|---------------|
+| Qwen2.5-1.5B-Instruct (nao-gated) | Llama 3.2 oficial | Evita burocracia de acesso gated no Hugging Face; desafio aceita "ou outro" |
+| LoRA/PEFT | Fine-tuning completo | Muito mais leve — treina na GPU gratuita do Colab; adapter pequeno o bastante para versionar |
+| FAISS + embeddings locais | API de embeddings (Gemini) | 100% offline/reproduzivel, sem custo de API para indexar/buscar |
+| API REST publica do `datasets-server` | Biblioteca `datasets` (download completo) | So busca as ~650 linhas relevantes de stroke, sem baixar datasets inteiros |
+| Pipeline deterministico (chain.py/graph.py) | Agente LLM com tool-calling | Reprodutivel e testavel; sem risco do LLM pular uma etapa obrigatoria (ex.: nao consultar guardrail) |
+| Guardrail por regex | LLM-as-judge para seguranca | Deterministico, sem custo/latencia de API extra, 100% testavel em CI |
+| Aresta condicional real no LangGraph | Sempre visitar `emit_alert` | Demonstra roteamento condicional; evita alerta/log espurio quando nao ha risco |
+
+## Limitacoes Conhecidas (Fase 3)
+
+- **Dados sinteticos:** nao ha protocolos/laudos reais do hospital disponiveis. Os exemplos sinteticos (gerados via Gemini) sao plausiveis mas ficticios — nao devem ser usados como referencia clinica real.
+- **Guardrail por regex:** `contains_direct_prescription` cobre padroes comuns em portugues (verbos imperativos, dosagem em mg), mas nao e semanticamente completo. Erra nas duas direcoes: uma prescricao formulada de forma atipica pode passar, e uma explicacao que apenas cita medicamento e dosagem pode ser marcada como prescricao (falso positivo observado na execucao real — ver secao 6.3 do relatorio da Fase 3).
+- **Capacidade do modelo fine-tuned:** com 1.5B parametros e 510 exemplos, o adapter ajusta formato e tom das respostas, mas nao incorpora conhecimento clinico confiavel — alucinacoes de dados ausentes e imprecisoes clinicas foram observadas nos notebooks 05 e 06.
+- **Cota da API Gemini:** o fallback do assistente (quando `results/finetuning/lora_adapter/` nao esta presente) usa o tier gratuito, com limite diario de requisicoes. Com o adapter versionado no repo, o caminho padrao nao depende de API.
+- **Fine-tuning nao roda localmente:** `notebooks/04_finetuning.ipynb` foi desenhado para o Colab (GPU gratuita); sem GPU, treinar mesmo um modelo de 1.5B com LoRA e impraticavel em tempo razoavel.
+- **RAG sem reranking:** `retriever.py` usa busca por similaridade simples (top-k), sem reranking ou filtragem por relevancia minima — pode retornar fontes pouco relevantes quando o corpus nao cobre bem o tema perguntado.
