@@ -15,7 +15,7 @@
 |---|---|
 | Explicação do processo de fine-tuning | [2. Processo de Fine-tuning](#2-processo-de-fine-tuning) |
 | Descrição do assistente médico criado | [3. Descrição do Assistente Médico](#3-descrição-do-assistente-médico) |
-| Diagrama do fluxo LangChain | [5. Fluxo LangChain / LangGraph](#5-fluxo-langchain--langgraph) e `docs/architecture.md` |
+| Diagrama do fluxo LangChain | [5. Fluxo LangChain / LangGraph](#5-fluxo-langchain--langgraph) e `docs/fluxo-langgraph` |
 | Avaliação do modelo e análise dos resultados | [6. Avaliação do Modelo e Análise dos Resultados](#6-avaliação-do-modelo-e-análise-dos-resultados) |
 | Segurança, logging e explainability | [4. Segurança e Validação](#4-segurança-e-validação) |
 
